@@ -80,5 +80,5 @@ casun6 -P WinSCP.WinSCP # To include back
 
 ![App Screenshot](https://snipboard.io/eFyLWJ.jpg)
 
-![App Screenshot](https://snipboard.io/8hgKCZ.jpg)
+![App Screenshot](https://snipboard.io/K49Htx.jpg)
 
