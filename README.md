@@ -72,3 +72,13 @@ casun6 -L
 casun6 -E WinSCP.WinSCP # To exclude
 casun6 -P WinSCP.WinSCP # To include back
 ```
+
+
+## Screenshots
+
+![App Screenshot](https://snipboard.io/8SzWoZ.jpg)
+
+![App Screenshot](https://snipboard.io/eFyLWJ.jpg)
+
+![App Screenshot](https://snipboard.io/8hgKCZ.jpg)
+
