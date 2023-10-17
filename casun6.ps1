@@ -15,7 +15,7 @@
 
 .LICENSEURI
 
-.PROJECTURI
+.PROJECTURI https://github.com/EnneGiKVis96/casun6
 
 .ICONURI
 
