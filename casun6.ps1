@@ -1,7 +1,7 @@
 
 <#PSScriptInfo
 
-.VERSION 1.2
+.VERSION 1.3
 
 .GUID 30675ad6-2459-427d-ac3a-3304cf103fe9
 
@@ -66,31 +66,32 @@ function Update-Packages {
     $updatepackages = Get-WinGetPackage | Where-Object { ($_.IsUpdateAvailable -eq $true) -and ($_.Source -eq "winget") } | `
     Select-Object Id, Name, InstalledVersion, @{Name='LastVersion'; Expression={$_.AvailableVersions[0]}}
 
-    $date = Get-Date -UFormat "%m/%d/%Y %R"
-    Write-Host "[$date] " -NoNewLine -ForegroundColor White
     if ($updatepackages.count -ne 0) {
-        Write-Host "Updates available found: $($updatepackages.count)"
+        Write-Host "-> Updates available found: $($updatepackages.count)"
 
         # Check if any of the packages are excluded
         $excludedPackages = Get-Content -Path "$ExcludePath\casun6_excluded_packages.txt" -Raw
 
         $packagesToInstall = @()
+
         foreach ($package in $updatepackages) {
             if (-not [string]::IsNullOrEmpty($excludedPackages) -and $excludedPackages -notlike "*$($package.Id)*") {
                 $packagesToInstall += $package
-            } else {
-                $date = Get-Date -UFormat "%m/%d/%Y %R"
-                Write-Host "`n[$date] " -NoNewLine -ForegroundColor White
-                Write-Host "Excluded package from update: $($package.Id). Ignoring ..." -ForegroundColor Yellow
             }
+        }
+
+        if ($excludedPackages.Count -gt 0) {
+            $commaexclPkg = $excludedPackages -replace "`n",", " -replace "`r",""
+            
+            Write-Host "-> Excluded package from update: $commaexclPkg. Ignoring ..." -ForegroundColor Yellow
+
         }
 
         if ($packagesToInstall.Count -gt 0) {
             
             $packagesToInstall | Out-Host
-            $date = Get-Date -UFormat "%m/%d/%Y %R"
-            Write-Host "`n[$date] " -NoNewLine -ForegroundColor White
-            $response = Read-Host "Do you want to proceed with installing $($packagesToInstall.Count) updates? (y/n)"
+            
+            $response = Read-Host "-> Do you want to proceed with installing $($packagesToInstall.Count) updates? (y/n)"
 
             if ($response -eq "y") {
                 $packagesToInstall | ForEach-Object {
@@ -101,12 +102,11 @@ function Update-Packages {
                 Exit
             }
         } else {
-            $date = Get-Date -UFormat "%m/%d/%Y %R"
-            Write-Host "`n[$date] " -NoNewLine -ForegroundColor White
-            Write-Host "No updates for packages are available now`n" -ForegroundColor Yellow
+            
+            Write-Host "-> No updates for packages are available now`n" -ForegroundColor Yellow
         }
     } else {
-        Write-Host "No updates for packages are available now`n" -ForegroundColor Yellow
+        Write-Host "-> No updates for packages are available now`n" -ForegroundColor Yellow
     }
 }
 
@@ -117,14 +117,12 @@ function Skip-Packages{
     If ($null -ne $exlpackage){
         $exlpackage | Select-Object Name, Id, InstalledVersion | Out-Host
         $Exclude | Out-File -Append -FilePath "$ExcludePath\casun6_excluded_packages.txt"
-        $date = Get-Date -UFormat "%m/%d/%Y %R"
-        Write-Host "`n[$date] " -NoNewLine -ForegroundColor White
-        Write-Host "Package $Exclude is excluded from future updates`n" -ForegroundColor Green
+        
+        Write-Host "-> Package $Exclude is excluded from future updates`n" -ForegroundColor Green
     }
     Else{
-        $date = Get-Date -UFormat "%m/%d/%Y %R"
-        Write-Host "`n[$date] " -NoNewLine -ForegroundColor White
-        Write-Host "Can't find $Exclude in your system. It is not installed as a package`n" -ForegroundColor Red
+        
+        Write-Host "-> Can't find $Exclude in your system. It is not installed as a package`n" -ForegroundColor Red
     }
 
 }
@@ -137,13 +135,11 @@ function Remove-ExcludedPackage {
         $excludedPackages = $excludedPackages | Where-Object { $_ -ne $Process }
         $excludedPackages | Set-Content -Path $filePath -Force
 
-        $date = Get-Date -UFormat "%m/%d/%Y %R"
-        Write-Host "`n[$date] " -NoNewLine -ForegroundColor White
-        Write-Host "Package $Process has been removed from the exclusion list`n" -ForegroundColor Green
+        
+        Write-Host "-> Package $Process has been removed from the exclusion list`n" -ForegroundColor Green
     } else {
-        $date = Get-Date -UFormat "%m/%d/%Y %R"
-        Write-Host "`n[$date] " -NoNewLine -ForegroundColor White
-        Write-Host "Package $Process is not in the exclusion list`n" -ForegroundColor Red
+        
+        Write-Host "-> Package $Process is not in the exclusion list`n" -ForegroundColor Red
     }
 }
 
@@ -159,16 +155,14 @@ function Install-Packages{
         }
         Else{
 
-            $date = Get-Date -UFormat "%m/%d/%Y %R"
-            Write-Host "`n[$date] " -NoNewLine -ForegroundColor White
-            Write-Host "Package $Install is already installed in the system`n" -ForegroundColor Yellow
+            
+            Write-Host "-> Package $Install is already installed in the system`n" -ForegroundColor Yellow
         
         }
     }
     Else{
-        $date = Get-Date -UFormat "%m/%d/%Y %R"
-        Write-Host "`n[$date] " -NoNewLine -ForegroundColor White
-        Write-Host "No packages with name $Install was found in winget`n" -ForegroundColor Red
+        
+        Write-Host "-> No packages with name $Install was found in winget`n" -ForegroundColor Red
     }
 
 }
@@ -182,20 +176,13 @@ function Install-PackagesVersioning{
         If ($installedpackage.count -eq 0){
             $foundpackage | Select-Object Name, Id, @{Name='VersionRequested'; Expression={$Version}} | Out-Host
             $foundpackage | Install-WinGetPackage -Version $Version -Mode Silent | Select-Object @{Name='Id'; Expression={$foundpackage.Id}}, Status, RebootRequired
-            #Install-WinGetPackage -Id $Install -Version $Version -Mode Silent | Select-Object @{Name='Id'; Expression={$foundpackage.Id}}, Status, RebootRequired
         }
         Else{
-
-            $date = Get-Date -UFormat "%m/%d/%Y %R"
-            Write-Host "`n[$date] " -NoNewLine -ForegroundColor White
-            Write-Host "Package $Install is already installed in the system`n" -ForegroundColor Yellow
-        
+            Write-Host "-> Package $Install is already installed in the system`n" -ForegroundColor Yellow
         }
     }
     Else{
-        $date = Get-Date -UFormat "%m/%d/%Y %R"
-        Write-Host "`n[$date] " -NoNewLine -ForegroundColor White
-        Write-Host "No packages with name $Install was found in winget or the version is invalid`n" -ForegroundColor Red
+        Write-Host "-> No packages with name $Install was found in winget or the version is invalid`n" -ForegroundColor Red
     }
 
 }
@@ -206,9 +193,7 @@ function Find-Packages{
     $foundpackages = Find-WinGetPackage $Find | Where-Object Source -eq "winget" | Select-Object Name, Id, Version, AvailableVersions
     If ($foundpackages.count -ne 0){$foundpackages}
     Else{
-        $date = Get-Date -UFormat "%m/%d/%Y %R"
-        Write-Host "`n[$date] " -NoNewLine -ForegroundColor White
-        Write-Host "No packages with name $Find was found in winget`n" -ForegroundColor Red
+        Write-Host "-> No packages with name $Find was found in winget`n" -ForegroundColor Red
     }
 }
 
@@ -219,12 +204,10 @@ function Remove-Packages{
     If ($installedpackage.count -ne 0){
 
         $installedpackage | Select-Object Name, Id, InstalledVersion | Out-Host
-        $date = Get-Date -UFormat "%m/%d/%Y %R"
-        Write-Host "[$date] " -NoNewLine -ForegroundColor White
-        $response =  Write-Host "You are uninstalling $Remove from your system."
-        $date = Get-Date -UFormat "%m/%d/%Y %R"
-        Write-Host "[$date] " -NoNewLine -ForegroundColor White
-        $response =  Read-Host "Do you want to proceed? (y/n)"
+        
+        $response =  Write-Host "-> You are uninstalling $Remove from your system."
+        
+        $response =  Read-Host "-> Do you want to proceed? (y/n)"
         If ($response -eq "y"){
             Uninstall-WinGetPackage -Id $Remove | Select-Object @{Name='Id'; Expression={$installedpackage.Id}}, Status, RebootRequired
         }
@@ -234,16 +217,15 @@ function Remove-Packages{
 
     }
     Else{
-        $date = Get-Date -UFormat "%m/%d/%Y %R"
-        Write-Host "`n[$date] " -NoNewLine -ForegroundColor White
-        Write-Host "No packages with name $Remove was found in your system`n" -ForegroundColor Red
+        
+        Write-Host "-> No packages with name $Remove was found in your system`n" -ForegroundColor Red
     }
 
 }
 
 $ExcludePath = $PSScriptRoot
 
-Write-Host "`nCasun6 Winget Helper [1.2]"
+Write-Host "`nCasun6 Winget Helper [1.3]"
 Write-Host "Improving winget experience for all Windows users from 2023"
 
 #Check if excluded txt is existing. Otherwise, it will create it
