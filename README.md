@@ -36,8 +36,8 @@ You can update casun6 in the same way using Powershell
 - Update winget packages 
 - List intalled winget packages
 - Find packages in the winget repos
-- [NEW] Exclude and include packages from updating
-
+- Exclude and include packages from updating
+- [NEW] Update Windows with system updates
 
 
 ## Usage/Examples
