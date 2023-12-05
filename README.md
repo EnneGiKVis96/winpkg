@@ -53,6 +53,17 @@ casun6 -I WinSCP.WinSCP
 casun6 -I WinSCP.WinSCP -V 6.1.1 # You can specify the version if available
 ```
 
+Update packages and/or Windows:
+```powershell
+casun6 -U # Update only winget packages
+casun6 -W # Update only Windows
+casun6 -U -W # Update winget packages and Windows -> REQUIRE ADMIN PERMISSION
+casun6 -U -W -O # Update winget packages and Windows and include optional updates -> REQUIRE ADMIN PERMISSION
+casun6 -A # The same as doing -U and -W with a single parameter -> REQUIRE ADMIN PERMISSION
+casun6 -A -N # It also includes optional updates -> REQUIRE ADMIN PERMISSION
+
+```
+
 Find any package in the winget repos
 ```powershell
 casun6 -F WinSCP 
@@ -68,7 +79,7 @@ List your installed packages
 casun6 -L
 ```
 
-[NEW] Exclude a package / include a package previously excluded
+Exclude a package / include a package previously excluded
 ```powershell
 casun6 -E WinSCP.WinSCP # To exclude
 casun6 -P WinSCP.WinSCP # To include back
