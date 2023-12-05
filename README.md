@@ -1,7 +1,8 @@
 
 # Casun6 Winget Helper
 
-Improving winget experience for all Windows users from 2023
+Winget and System Updates All In One ~ Since 2023.
+Casun6 is a Powershell Script to simplify the package manager winget and create a single unified CLI for packages and system updates.
 
 
 ## Badges
