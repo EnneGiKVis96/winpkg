@@ -1,7 +1,7 @@
 
 <#PSScriptInfo
 
-.VERSION 1.3
+.VERSION 1.4
 
 .GUID 30675ad6-2459-427d-ac3a-3304cf103fe9
 
@@ -42,6 +42,8 @@ param(
     [CmdletBinding(DefaultParameterSetName='00')]     
     [Parameter(ParameterSetName='00')]
     [switch]$Update,
+    [switch]$WindowsUpdate,
+    [switch]$Optional,
     [Parameter(ParameterSetName='01')]
     [string]$Install,
     [string]$Version,
@@ -55,10 +57,14 @@ param(
     [string]$Remove,
     [Parameter(ParameterSetName='07')]
     [switch]$Help,
-    [Parameter(ParameterSetName='04')]
-    [string]$Process
+    [Parameter(ParameterSetName='08')]
+    [string]$Process,
+    [Parameter(ParameterSetName='09')]
+    [switch]$AllUpdates,
+    [switch]$NonMandatory
 )
 
+#Requires -Module PSWindowsUpdate
 #Requires -Module Microsoft.WinGet.Client
 
 function Update-Packages {
@@ -110,6 +116,61 @@ function Update-Packages {
     }
 }
 
+function Test-Administrator{  
+    $user = [Security.Principal.WindowsIdentity]::GetCurrent();
+    (New-Object Security.Principal.WindowsPrincipal $user).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)  
+}
+
+
+function Get-WindowsKB{
+
+    Write-Host "-> Searching Windows Updates..."
+
+    if (($Optional.IsPresent) -or ($NonMandatory.IsPresent)){
+        $checkUpdate = Get-WindowsUpdate -criteria "isinstalled=0 and deploymentaction=*"
+        Return $checkUpdate
+    }
+    Else{
+        $checkUpdate = Get-WindowsUpdate
+        Return $checkUpdate
+
+    }
+
+}
+
+function Update-Windows{
+
+    $checkRights = Test-Administrator
+    if ($checkRights -eq $True){
+        $checkUpdate = Get-WindowsKB
+
+        If ($null -ne $checkUpdate){
+            $response = Read-Host "-> Do you want to proceed with installing $($checkUpdate.Count) Windows Updates? (y/n)"
+
+            if ($response -eq "y") {
+                
+                Write-Host "-> Installing Windows Updates..." -ForegroundColor Cyan
+                try{
+                    if (($Optional.IsPresent) -or ($NonMandatory.IsPresent)){Install-WindowsUpdate -criteria "isinstalled=0 and deploymentaction=*"}Else{Install-WindowsUpdate}
+                    Write-Host "-> Windows Updates installed successfully" -ForegroundColor Green
+                }
+                catch{
+                    Write-Host "-> Error during installing updates" -ForegroundColor Red
+                }
+
+            } else {
+                Exit
+            }
+            
+        }
+        Else{
+            Write-Host "-> No Windows Updates available at the moment" -ForegroundColor Yellow
+        }
+    }
+    Else{
+        Write-Host "-> Please run this script as administrator to check for Windows Updates" -ForegroundColor Red
+    }
+} 
 
 function Skip-Packages{
 
@@ -225,8 +286,8 @@ function Remove-Packages{
 
 $ExcludePath = $PSScriptRoot
 
-Write-Host "`nCasun6 Winget Helper [1.3]"
-Write-Host "Improving winget experience for all Windows users from 2023"
+Write-Host "`nCasun6 Winget Helper [1.4]"
+Write-Host "Winget and System Updates All In One ~ Since 2023"
 
 #Check if excluded txt is existing. Otherwise, it will create it
 $filePath = "$ExcludePath\casun6_excluded_packages.txt"
@@ -238,6 +299,14 @@ if (-not (Test-Path -Path $filePath)) {
 If ($Update.IsPresent){
 
     Update-Packages
+    If ($WindowsUpdate.IsPresent){
+        Update-Windows
+    }
+
+}ElseIf($AllUpdates.IsPresent){
+
+    Update-Packages
+    Update-Windows
 
 }Elseif ($Install){
 
@@ -247,7 +316,6 @@ If ($Update.IsPresent){
         Install-Packages
     }
     
-
 }Elseif ($Find){
 
     Find-Packages
@@ -273,7 +341,8 @@ Elseif ($Process){
 }
 ElseIf($Help.IsPresent){
 
-    Write-Host "`nusage: casun6 [-U update_packages]"
+    Write-Host "`nusage: casun6 [-U update_packages][-W windows_updates][-O optional_windows_updates]"
+    Write-Host "                [-A all_updates][-N nonmandatory_windows_updates]"
     Write-Host "                [-I install_packages][-V version_requested]"
     Write-Host "                [-F find_packages ]"
     Write-Host "                [-L list_installed_packages ]"
