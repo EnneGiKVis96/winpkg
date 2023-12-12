@@ -1,7 +1,7 @@
 
 <#PSScriptInfo
 
-.VERSION 1.4
+.VERSION 1.5
 
 .GUID 30675ad6-2459-427d-ac3a-3304cf103fe9
 
@@ -35,15 +35,13 @@
 <# 
 
 .DESCRIPTION 
- Improving winget experience for all Windows users from 2023 
+ Winget | Windows Updates | Since 2023
 
 #> 
 param(
     [CmdletBinding(DefaultParameterSetName='00')]     
     [Parameter(ParameterSetName='00')]
-    [switch]$Update,
-    [switch]$WindowsUpdate,
-    [switch]$Optional,
+    [switch]$Update,  
     [Parameter(ParameterSetName='01')]
     [string]$Install,
     [string]$Version,
@@ -61,7 +59,10 @@ param(
     [string]$Process,
     [Parameter(ParameterSetName='09')]
     [switch]$AllUpdates,
-    [switch]$NonMandatory
+    [switch]$NonMandatory,
+    [Parameter(ParameterSetName='10')]
+    [switch]$WindowsUpdate,
+    [switch]$Optional
 )
 
 #Requires -Module PSWindowsUpdate
@@ -76,34 +77,52 @@ function Update-Packages {
         Write-Host "-> Updates available found: $($updatepackages.count)"
 
         # Check if any of the packages are excluded
-        $excludedPackages = Get-Content -Path "$ExcludePath\casun6_excluded_packages.txt" -Raw
 
+        $excludedPackages = Get-ExcludedPackages
         $packagesToInstall = @()
+        $excludedToInstall = @()
 
-        foreach ($package in $updatepackages) {
-            if (-not [string]::IsNullOrEmpty($excludedPackages) -and $excludedPackages -notlike "*$($package.Id)*") {
+        ForEach ($package in $updatepackages) {
+            If ($null -eq $excludedPackages -or $excludedPackages -notcontains $package.Id) {
                 $packagesToInstall += $package
+            }
+            Else{
+                $excludedToInstall += $package
             }
         }
 
-        if ($excludedPackages.Count -gt 0) {
-            $commaexclPkg = $excludedPackages -replace "`n",", " -replace "`r",""
-            
-            Write-Host "-> Excluded package from update: $commaexclPkg. Ignoring ..." -ForegroundColor Yellow
-
+        if ($excludedToInstall.Count -gt 0) {
+            $excludedPackageIds = ($excludedToInstall | ForEach-Object { $_.Id }) -join ', '
+            Write-Host "-> Excluded package from update: $excludedPackageIds. Ignoring ..." -ForegroundColor Yellow
         }
 
+        $index = 1
         if ($packagesToInstall.Count -gt 0) {
-            
-            $packagesToInstall | Out-Host
-            
-            $response = Read-Host "-> Do you want to proceed with installing $($packagesToInstall.Count) updates? (y/n)"
+            write-host ""
+            ForEach ($updatepkg in $packagesToInstall){
 
-            if ($response -eq "y") {
+                Write-Host -NoNewline "     [$index]      " -ForegroundColor Magenta
+                Write-Host -NoNewLine "[winget" -ForegroundColor Cyan
+                Write-Host -NoNewLine "\$($updatepkg.Id)]     "
+                Write-Host -NoNewLine "[$($updatepkg.InstalledVersion)]  " -ForegroundColor Red
+                Write-Host -NoNewLine "->  "
+                Write-Host  "[$($updatepkg.LastVersion)]" -ForegroundColor Green
+                $index ++
+            }
+            
+            $response = Read-Host "`n-> Do you want to proceed with installing $($packagesToInstall.Count) updates? (y/n)"
+
+            if ($response -ieq "y") {
+                write-host ""
                 $packagesToInstall | ForEach-Object {
                     $id = $_.Id
-                    $_ | Update-WinGetPackage -Mode Silent | Select-Object @{Name='Id'; Expression={$id}}, Status, RebootRequired
+                    $resultupdate = $_ | Update-WinGetPackage -Mode Silent | Select-Object @{Name='Id'; Expression={$id}}, Status, RebootRequired
+                    Write-Host -NoNewLine "     [winget" -ForegroundColor Cyan
+                    Write-Host -NoNewLine "\$($resultupdate.Id)]  ->  "
+                    if ($resultupdate.Status -ieq "OK"){Write-Host "[$($resultupdate.Status)]  " -ForegroundColor Green}Else{Write-Host "[$($resultupdate.Status)]  " -ForegroundColor Red}
+                    
                 }
+                write-host ""
             } else {
                 Exit
             }
@@ -144,14 +163,25 @@ function Update-Windows{
     if ($checkRights -eq $True){
         $checkUpdate = Get-WindowsKB
 
+        $index = 1
         If ($null -ne $checkUpdate){
+
+            ForEach ($updatewin in $checkUpdate){
+
+                Write-Host -NoNewline "     [$index]      " -ForegroundColor Magenta
+                Write-Host -NoNewLine "[winupd" -ForegroundColor Yellow
+                Write-Host -NoNewLine "\$($updatewin.KB)]     "
+                Write-Host "[$($updatewin.Title)]  " -ForegroundColor Green
+                $index ++
+            }
+
             $response = Read-Host "-> Do you want to proceed with installing $($checkUpdate.Count) Windows Updates? (y/n)"
 
-            if ($response -eq "y") {
+            if ($response -ieq "y") {
                 
                 Write-Host "-> Installing Windows Updates..." -ForegroundColor Cyan
                 try{
-                    if (($Optional.IsPresent) -or ($NonMandatory.IsPresent)){Install-WindowsUpdate -criteria "isinstalled=0 and deploymentaction=*"}Else{Install-WindowsUpdate}
+                    if (($Optional.IsPresent) -or ($NonMandatory.IsPresent)){Install-WindowsUpdate -criteria "isinstalled=0 and deploymentaction=*" -Confirm:$false}Else{Install-WindowsUpdate -Confirm $false}
                     Write-Host "-> Windows Updates installed successfully" -ForegroundColor Green
                 }
                 catch{
@@ -172,37 +202,73 @@ function Update-Windows{
     }
 } 
 
-function Skip-Packages{
+function Get-ExcludedPackages {
 
-    $exlpackage = Get-WinGetPackage | Where-Object Id -eq $Exclude
-    If ($null -ne $exlpackage){
-        $exlpackage | Select-Object Name, Id, InstalledVersion | Out-Host
-        $Exclude | Out-File -Append -FilePath "$ExcludePath\casun6_excluded_packages.txt"
-        
-        Write-Host "-> Package $Exclude is excluded from future updates`n" -ForegroundColor Green
+    if (Test-Path $jsonFilePath) {
+
+        $jsonContent = Get-Content -Raw -Path $jsonFilePath | ConvertFrom-Json
+        return $jsonContent.ExcludedPackages -as [string[]]
+    } else {
+
+        $initialJson = @{
+            ExcludedPackages = @()
+        } | ConvertTo-Json
+
+        $initialJson | Set-Content -Path $jsonFilePath
+
+        return @()
     }
-    Else{
-        
-        Write-Host "-> Can't find $Exclude in your system. It is not installed as a package`n" -ForegroundColor Red
+
+}
+
+function Add-ExcludedPackage {
+    param (
+        [string]$packageId
+    )
+
+    [string[]]$excludedPackages = Get-ExcludedPackages
+
+    if ($packageId -notin $excludedPackages) {
+        $excludedPackages += $packageId
+
+        $jsonContent = @{
+            ExcludedPackages = $excludedPackages
+        }
+
+        $jsonContent | ConvertTo-Json | Set-Content -Path $jsonFilePath
+
+        Write-Host "-> Package $Exclude is excluded from future updates`n" -ForegroundColor Green
+
+    } else {
+        Write-Host "-> Package $Exclude is already excluded from future update`n" -ForegroundColor Red
     }
 
 }
 
 function Remove-ExcludedPackage {
+    param (
+        [string]$packageId
+    )
 
-    $excludedPackages = Get-Content -Path $filePath
+    $excludedPackages = Get-ExcludedPackages
 
-    if ($excludedPackages -contains $Process) {
-        $excludedPackages = $excludedPackages | Where-Object { $_ -ne $Process }
-        $excludedPackages | Set-Content -Path $filePath -Force
+    if ($packageId -in $excludedPackages) {
 
-        
+        $excludedPackages = $excludedPackages | Where-Object { $_ -ne $packageId }
+
+        $jsonContent = @{
+            ExcludedPackages = $excludedPackages
+        }
+
+        $jsonContent | ConvertTo-Json | Set-Content -Path $jsonFilePath
+
         Write-Host "-> Package $Process has been removed from the exclusion list`n" -ForegroundColor Green
     } else {
-        
         Write-Host "-> Package $Process is not in the exclusion list`n" -ForegroundColor Red
     }
+
 }
+
 
 function Install-Packages{
     $foundpackage = Find-WinGetPackage -Id $Install | Where-Object Id -eq $Install
@@ -211,8 +277,22 @@ function Install-Packages{
         
         $installedpackage = Get-WinGetPackage | Where-Object Id -eq $Install
         If ($installedpackage.count -eq 0){
-            $foundpackage | Select-Object Name, Id, Version | Out-Host
-            Install-WinGetPackage -Id $Install -Mode Silent | Select-Object @{Name='Id'; Expression={$foundpackage.Id}}, Status, RebootRequired
+            write-host ""
+            Write-Host -NoNewLine "     [winget" -ForegroundColor Cyan
+            Write-Host -NoNewLine "\$($foundpackage.Id)]     "
+            Write-Host -NoNewLine "[$($foundpackage.Name)]  "
+            Write-Host -NoNewLine "->  "
+            Write-Host  "[$($foundpackage.Version)]" -ForegroundColor Green
+            write-host ""
+
+            Write-Host "Starting installation of $($foundpackage.Id)"
+            $resultinstall = Install-WinGetPackage -Id $Install -Mode Silent | Select-Object @{Name='Id'; Expression={$foundpackage.Id}}, Status, RebootRequired
+
+            write-host ""
+            Write-Host -NoNewLine "     [winget" -ForegroundColor Cyan
+            Write-Host -NoNewLine "\$($resultinstall.Id)]  ->  "
+            if ($resultinstall.Status -ieq "OK"){Write-Host "[$($resultinstall.Status)]  " -ForegroundColor Green}Else{Write-Host "[$($resultinstall.Status)]  " -ForegroundColor Red}
+            write-host ""
         }
         Else{
 
@@ -235,8 +315,20 @@ function Install-PackagesVersioning{
         
         $installedpackage = Get-WinGetPackage | Where-Object Id -eq $Install
         If ($installedpackage.count -eq 0){
-            $foundpackage | Select-Object Name, Id, @{Name='VersionRequested'; Expression={$Version}} | Out-Host
-            $foundpackage | Install-WinGetPackage -Version $Version -Mode Silent | Select-Object @{Name='Id'; Expression={$foundpackage.Id}}, Status, RebootRequired
+            write-host ""
+            Write-Host -NoNewLine "     [winget" -ForegroundColor Cyan
+            Write-Host -NoNewLine "\$($foundpackage.Id)]     "
+            Write-Host -NoNewLine "[$($foundpackage.Name)]  "
+            Write-Host -NoNewLine "->  "
+            Write-Host  "[$Version)]" -ForegroundColor Green
+            write-host ""
+            Write-Host "Starting installation of $($foundpackage.Id)"
+            $resultinstall = Install-WinGetPackage -Id $Install -Version $Version -Mode Silent | Select-Object @{Name='Id'; Expression={$foundpackage.Id}}, Status, RebootRequired
+            write-host ""
+            Write-Host -NoNewLine "     [winget" -ForegroundColor Cyan
+            Write-Host -NoNewLine "\$($resultinstall.Id)]  ->  "
+            if ($resultinstall.Status -ieq "OK"){Write-Host "[$($resultinstall.Status)]  " -ForegroundColor Green}Else{Write-Host "[$($resultinstall.Status)]  " -ForegroundColor Red}
+            write-host ""
         }
         Else{
             Write-Host "-> Package $Install is already installed in the system`n" -ForegroundColor Yellow
@@ -252,7 +344,21 @@ function Install-PackagesVersioning{
 function Find-Packages{
 
     $foundpackages = Find-WinGetPackage $Find | Where-Object Source -eq "winget" | Select-Object Name, Id, Version, AvailableVersions
-    If ($foundpackages.count -ne 0){$foundpackages}
+    $index = 1
+    If ($foundpackages.count -ne 0){
+        write-host ""
+        ForEach ($foundpkg in $foundpackages){
+
+            Write-Host -NoNewline "     [$index]      " -ForegroundColor Magenta
+            Write-Host -NoNewLine "[winget" -ForegroundColor Cyan
+            Write-Host -NoNewLine "\$($foundpkg.Id)]     "
+            Write-Host -NoNewLine "[$($foundpkg.Version)]  " -ForegroundColor Green
+            Write-Host -NoNewLine "-  "
+            Write-Host  "[$($foundpkg.AvailableVersions)]" -ForegroundColor Yellow
+            $index ++
+        }
+        write-host ""
+    }
     Else{
         Write-Host "-> No packages with name $Find was found in winget`n" -ForegroundColor Red
     }
@@ -263,14 +369,23 @@ function Remove-Packages{
 
     $installedpackage = Get-WinGetPackage | Where-Object Id -eq $Remove
     If ($installedpackage.count -ne 0){
-
-        $installedpackage | Select-Object Name, Id, InstalledVersion | Out-Host
-        
+        write-host ""
+        Write-Host -NoNewLine "     [winget" -ForegroundColor Cyan
+        Write-Host -NoNewLine "\$($installedpackage.Id)]     "
+        Write-Host -NoNewLine "[$($installedpackage.Name)]  "
+        Write-Host -NoNewLine "-  "
+        Write-Host  "[$($installedpackage.InstalledVersion)]" -ForegroundColor Yellow
+        write-host ""
         $response =  Write-Host "-> You are uninstalling $Remove from your system."
-        
         $response =  Read-Host "-> Do you want to proceed? (y/n)"
-        If ($response -eq "y"){
-            Uninstall-WinGetPackage -Id $Remove | Select-Object @{Name='Id'; Expression={$installedpackage.Id}}, Status, RebootRequired
+
+        If ($response -ieq "y"){
+            $resultuninstall = Uninstall-WinGetPackage -Id $Remove | Select-Object @{Name='Id'; Expression={$installedpackage.Id}}, Status, RebootRequired
+            write-host ""
+            Write-Host -NoNewLine "     [winget" -ForegroundColor Cyan
+            Write-Host -NoNewLine "\$($resultuninstall.Id)]  ->  "
+            if ($resultuninstall.Status -ieq "OK"){Write-Host "[$($resultuninstall.Status)]  " -ForegroundColor Green}Else{Write-Host "[$($resultuninstall.Status)]  " -ForegroundColor Red}
+            write-host ""
         }
         Else{
             Exit
@@ -284,24 +399,54 @@ function Remove-Packages{
 
 }
 
-$ExcludePath = $PSScriptRoot
 
-Write-Host "`nCasun6 Winget Helper [1.4]"
-Write-Host "Winget and System Updates All In One ~ Since 2023"
+function Get-ListPackages{
+    $index = 1
+    $list = Get-WinGetPackage | Where-Object Source -eq "winget" | Select-Object Id, Name, InstalledVersion
 
-#Check if excluded txt is existing. Otherwise, it will create it
-$filePath = "$ExcludePath\casun6_excluded_packages.txt"
-if (-not (Test-Path -Path $filePath)) {
-    New-Item -ItemType File -Path $filePath -Force | Out-Null
+    write-host ""
+    ForEach ($li in $list){
+
+        Write-Host -NoNewline "     [$index]      " -ForegroundColor Magenta
+        Write-Host -NoNewLine "[winget" -ForegroundColor Cyan
+        Write-Host -NoNewLine "\$($li.Id)]  ->  "
+        Write-Host "[$($li.InstalledVersion)]  " -ForegroundColor Green
+        $index ++
+    }
+    write-host ""
 }
 
+function Show-Help{
+
+    $output = @()
+    $output += "`nusage: casun6 [-U update_packages]"
+    $output += "                [-W windows_updates][-O optional_windows_updates]"
+    $output += "                [-A all_updates][-N nonmandatory_windows_updates]"
+    $output += "                [-I install_packages][-V version_requested]"
+    $output += "                [-F find_packages]"
+    $output += "                [-L list_installed_packages]"
+    $output += "                [-R remove_packages]"
+    $output += "                [-E exclude_packages]"
+    $output += "                [-P process_excludedpackages]`n"
+    $output | Out-Host
+
+}
+
+$welcome = @()
+$welcome += "`nCasun6 Package Manager [1.5]"
+$welcome += "Winget | Windows Updates | Since 2023"
+$welcome | Out-Host
+
+# Percorso del file JSON
+$jsonFilePath = Join-Path $PSScriptRoot "exclusions.json"
 
 If ($Update.IsPresent){
 
     Update-Packages
-    If ($WindowsUpdate.IsPresent){
-        Update-Windows
-    }
+}
+ElseIf($WindowsUpdate.IsPresent){
+
+    Update-Windows
 
 }ElseIf($AllUpdates.IsPresent){
 
@@ -322,12 +467,12 @@ If ($Update.IsPresent){
 
 }ElseIf ($Exclude){
 
-    Skip-Packages
+    Add-ExcludedPackage -packageId $Exclude
 
 }ElseIf ($List.IsPresent){
 
-    Get-WinGetPackage | Where-Object Source -eq "winget" |`
-    Select-Object Id, Name, InstalledVersion
+    Get-ListPackages
+    
 
 }Elseif ($Remove){
 
@@ -336,18 +481,12 @@ If ($Update.IsPresent){
 }
 Elseif ($Process){
 
-    Remove-ExcludedPackage
+    Remove-ExcludedPackage -packageId $Process
 
 }
 ElseIf($Help.IsPresent){
 
-    Write-Host "`nusage: casun6 [-U update_packages][-W windows_updates][-O optional_windows_updates]"
-    Write-Host "                [-A all_updates][-N nonmandatory_windows_updates]"
-    Write-Host "                [-I install_packages][-V version_requested]"
-    Write-Host "                [-F find_packages ]"
-    Write-Host "                [-L list_installed_packages ]"
-    Write-Host "                [-R remove_packages ]"
-    Write-Host "                [-E exclude_packages ]"
-    Write-Host "                [-P process_excludedpackages ]`n"
+    Show-Help
+
 }
 
