@@ -1,7 +1,7 @@
 
-# Casun6 Winget Helper
+# Casun6
 
-Winget and System Updates All In One ~ Since 2023.
+Winget | Windows Updates | Since 2023.
 Casun6 is a Powershell Script to simplify the package manager winget and create a single unified CLI for packages and system updates.
 
 
@@ -37,7 +37,7 @@ You can update casun6 in the same way using Powershell
 - List intalled winget packages
 - Find packages in the winget repos
 - Exclude and include packages from updating
-- [NEW] Update Windows with system updates
+- Update Windows with system updates
 
 
 ## Usage/Examples
@@ -56,10 +56,9 @@ casun6 -I WinSCP.WinSCP -V 6.1.1 # You can specify the version if available
 Update packages and/or Windows:
 ```powershell
 casun6 -U # Update only winget packages
-casun6 -W # Update only Windows
-casun6 -U -W # Update winget packages and Windows -> REQUIRE ADMIN PERMISSION
-casun6 -U -W -O # Update winget packages and Windows and include optional updates -> REQUIRE ADMIN PERMISSION
-casun6 -A # The same as doing -U and -W with a single parameter -> REQUIRE ADMIN PERMISSION
+casun6 -W # Update only Windows REQUIRE ADMIN PERMISSION
+casun6 -W -O # Include optional Windows updates -> REQUIRE ADMIN PERMISSION
+casun6 -A # Update for winget packages and Windows updates -> REQUIRE ADMIN PERMISSION
 casun6 -A -N # It also includes optional updates -> REQUIRE ADMIN PERMISSION
 
 ```
