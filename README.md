@@ -4,14 +4,6 @@
 Winget | Windows Updates | Since 2023.
 Casun6 is a Powershell Script to simplify the package manager winget and create a single unified CLI for packages and system updates.
 
-
-## Badges
-
-[![GPLv3 License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg)](https://opensource.org/licenses/)
-[![powershellgallery](https://www.powershellgallery.com/Content/Images/Branding/psgallerylogo.svg)](https://www.powershellgallery.com/packages/casun6)
-
-
-
 ## Installation
 
 Install casun6 script with Powershell
