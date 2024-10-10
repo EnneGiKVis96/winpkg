@@ -1,8 +1,7 @@
 
-# Winpkg
+# WinPKG
 
-Winget | Windows Updates | Since 2023.
-Winpkg is a Powershell Script to simplify the package manager winget and create a single unified CLI for packages and system updates.
+WinPKG is a Powershell Script to simplify the package manager winget and create a single unified CLI for packages.
 
 ## Installation
 
@@ -27,7 +26,7 @@ You can update winpkg in the same way using Powershell
 - Install winget packages 
 - Update winget packages 
 - List installed winget packages
-- Find packages in the winget repos
+- Find packages in the winget repo
 - Exclude and include packages from updating
 
 ## Usage/Examples
@@ -45,7 +44,7 @@ winpkg -I WinSCP.WinSCP -V 6.1.1 # You can specify the version if available
 
 Update packages:
 ```powershell
-winpkg -U # Update only winget packages
+winpkg -U
 ```
 
 Find any package in the winget repos:
@@ -66,6 +65,10 @@ winpkg -L
 Exclude a package / include a package previously excluded
 ```powershell
 winpkg -E WinSCP.WinSCP # To exclude
-winpkg -P WinSCP.WinSCP # To include back
+winpkg -P WinSCP.WinSCP # To remove the exclusion
 ```
 
+List your excluded packages
+```powershell
+winpkg -X
+```
