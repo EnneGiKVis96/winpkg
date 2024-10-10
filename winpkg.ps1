@@ -424,7 +424,7 @@ $welcome += "`nWinPKG [1.3]"
 $welcome | Out-Host
 
 # Esegui la verifica all'avvio dello script
-Check-ForUpdate
+Get-WinPKGUpdates
 
 $jsonFilePath = Join-Path $PSScriptRoot "exclusions.json"
 
@@ -469,7 +469,7 @@ ElseIf($Help.IsPresent){
 }
 ElseIf($XclusionList.IsPresent){
 
-    Get-WinPKGUpdates
+    Get-ExcludedPackages
 
 }
 
