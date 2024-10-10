@@ -1,7 +1,7 @@
 
 <#PSScriptInfo
 
-.VERSION 1.2
+.VERSION 1.3
 
 .GUID 30675ad6-2459-427d-ac3a-3304cf103fe9
 
@@ -62,9 +62,28 @@ param(
 
 #Requires -Module Microsoft.WinGet.Client
 
+function Get-WinPKGUpdates {
+
+    $scriptName = "winpkg"
+
+    Write-Host "`n:: Checking for WinPKG updates" -ForegroundColor Cyan
+    $installedScript = Get-InstalledScript -Name $scriptName
+    $installedVersion = $installedScript.Version
+
+    $galleryScript = Find-Script -Name $scriptName
+    $galleryVersion = $galleryScript.Version
+
+    if ($galleryVersion -gt $installedVersion) {
+        Write-Host ":: New version of WinPKG is available: $galleryVersion. Please update with Update-Script -Name winpkg" -ForegroundColor Cyan
+    }
+    else{
+        Write-Host ":: Already running the latest version" -ForegroundColor Cyan
+    }
+}
+
 function Update-Packages {
 
-    Write-Host "`n:: Checking updates" -ForegroundColor Yellow
+    Write-Host "`n:: Checking packages updates" -ForegroundColor Yellow
     $updatepackages = Get-WinGetPackage | Where-Object { ($_.IsUpdateAvailable -eq $true) -and ($_.Source -eq "winget") } | `
     Select-Object Id, Name, InstalledVersion, @{Name='LastVersion'; Expression={$_.AvailableVersions[0]}}
 
@@ -342,7 +361,7 @@ function Remove-Packages{
         $response =  Read-Host ":: Do you want to proceed? (y/n)"
 
         If ($response -ieq "y"){
-            $resultuninstall = Uninstall-WinGetPackage -Id $Remove
+            $resultuninstall = Uninstall-WinGetPackage -Id $Remove -Mode Silent
             if ($resultuninstall.Status -ieq "OK"){
                 Write-Host ":: The package $Remove is now uninstalled from your system`n" -ForegroundColor Green
             }
@@ -394,14 +413,18 @@ function Show-Help{
     $output += "                [-L list_installed_packages]"
     $output += "                [-R remove_packages]"
     $output += "                [-E exclude_packages]"
-    $output += "                [-P process_excludedpackages]`n"
+    $output += "                [-P process_excludedpackages]"
+    $output += "                [-X eXclusion_list]`n"
     $output | Out-Host
 
 }
 
 $welcome = @()
-$welcome += "`nWinPKG [1.2]"
+$welcome += "`nWinPKG [1.3]"
 $welcome | Out-Host
+
+# Esegui la verifica all'avvio dello script
+Check-ForUpdate
 
 $jsonFilePath = Join-Path $PSScriptRoot "exclusions.json"
 
@@ -446,8 +469,11 @@ ElseIf($Help.IsPresent){
 }
 ElseIf($XclusionList.IsPresent){
 
-    Get-ExcludedPackages
+    Get-WinPKGUpdates
 
 }
+
+
+
 
 
