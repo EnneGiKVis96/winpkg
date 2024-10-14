@@ -1,7 +1,7 @@
 
 <#PSScriptInfo
 
-.VERSION 1.3
+.VERSION 1.3.1
 
 .GUID 30675ad6-2459-427d-ac3a-3304cf103fe9
 
@@ -166,11 +166,11 @@ function Get-ExcludedPackages {
             $jsonContent = Get-Content -Raw -Path $jsonFilePath | ConvertFrom-Json
             If ($null -ne $jsonContent -and $jsonContent.ExcludedPackages.Count -gt 0){
                 Write-Host ""
-                ForEach ($pkg in $jsonContent){
+                ForEach ($pkg in $jsonContent.ExcludedPackages){
 
                     # Formattazione con larghezza fissa per allineare l'output
                     $formattedInd = "{0,-5}" -f $ind
-                    $formattedId = "{0,-40}" -f $pkg.ExcludedPackages
+                    $formattedId = "{0,-40}" -f $pkg
         
                     # Stampa il testo con colori e formattazione
                     
@@ -408,19 +408,19 @@ function Show-Help{
 
     $output = @()
     $output += "`nusage: winpkg [-U update_packages]"
-    $output += "                [-I install_packages][-V version_requested]"
-    $output += "                [-F find_packages]"
-    $output += "                [-L list_installed_packages]"
-    $output += "                [-R remove_packages]"
-    $output += "                [-E exclude_packages]"
-    $output += "                [-P process_excludedpackages]"
-    $output += "                [-X eXclusion_list]`n"
+    $output += "              [-I install_packages][-V version_requested]"
+    $output += "              [-F find_packages]"
+    $output += "              [-L list_installed_packages]"
+    $output += "              [-R remove_packages]"
+    $output += "              [-E exclude_packages]"
+    $output += "              [-P process_excludedpackages]"
+    $output += "              [-X eXclusion_list]`n"
     $output | Out-Host
 
 }
 
 $welcome = @()
-$welcome += "`nWinPKG [1.3]"
+$welcome += "`nWinPKG [1.3.1]"
 $welcome | Out-Host
 
 # Esegui la verifica all'avvio dello script
