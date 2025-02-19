@@ -1,7 +1,7 @@
 
 <#PSScriptInfo
 
-.VERSION 1.3.1
+.VERSION 1.4
 
 .GUID 30675ad6-2459-427d-ac3a-3304cf103fe9
 
@@ -67,8 +67,7 @@ function Get-WinPKGUpdates {
     $scriptName = "winpkg"
 
     Write-Host "`n:: Checking for WinPKG updates" -ForegroundColor Cyan
-    $installedScript = Get-InstalledScript -Name $scriptName
-    $installedVersion = $installedScript.Version
+    $installedVersion = $version
 
     $galleryScript = Find-Script -Name $scriptName
     $galleryVersion = $galleryScript.Version
@@ -84,7 +83,7 @@ function Get-WinPKGUpdates {
 function Update-Packages {
 
     Write-Host "`n:: Checking packages updates" -ForegroundColor Yellow
-    $updatepackages = Get-WinGetPackage | Where-Object { ($_.IsUpdateAvailable -eq $true) -and ($_.Source -eq "winget") } | `
+    $updatepackages = Get-WinGetPackage -Source "winget" | Where-Object IsUpdateAvailable -eq $true | `
     Select-Object Id, Name, InstalledVersion, @{Name='LastVersion'; Expression={$_.AvailableVersions[0]}}
 
     if ($updatepackages.count -ne 0) {
@@ -386,7 +385,7 @@ function Get-ListPackages {
 
     Write-Host "`n:: Listing all packages installed`n" -ForegroundColor Yellow
     $ind = 1
-    $list = Get-WinGetPackage | Where-Object Source -eq "winget" | Select-Object Id, InstalledVersion
+    $list = Get-WinGetPackage -Source "winget" | Select-Object Id, InstalledVersion
 
     ForEach ($li in $list) {
         # Formattazione con larghezza fissa per allineare l'output
@@ -419,8 +418,9 @@ function Show-Help{
 
 }
 
+$version = "1.4"
 $welcome = @()
-$welcome += "`nWinPKG [1.3.1]"
+$welcome += "`nWinPKG [$version]"
 $welcome | Out-Host
 
 # Esegui la verifica all'avvio dello script
@@ -450,7 +450,6 @@ If ($Update.IsPresent){
 }ElseIf ($List.IsPresent){
 
     Get-ListPackages
-    
 
 }Elseif ($Remove){
 
