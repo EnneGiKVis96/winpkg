@@ -67,7 +67,7 @@ function Get-WinPKGUpdates {
     $scriptName = "winpkg"
 
     Write-Host "`n:: Checking for WinPKG updates" -ForegroundColor Cyan
-    $installedVersion = $version
+    $installedVersion = $appversion
 
     $galleryScript = Find-Script -Name $scriptName
     $galleryVersion = $galleryScript.Version
@@ -418,9 +418,9 @@ function Show-Help{
 
 }
 
-$version = "1.4"
+$appversion = "1.5"
 $welcome = @()
-$welcome += "`nWinPKG [$version]"
+$welcome += "`nWinPKG [$appversion]"
 $welcome | Out-Host
 
 # Esegui la verifica all'avvio dello script
