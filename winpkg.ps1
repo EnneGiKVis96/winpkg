@@ -1,7 +1,6 @@
-
 <#PSScriptInfo
 
-.VERSION 1.5
+.VERSION 1.6
 
 .GUID 30675ad6-2459-427d-ac3a-3304cf103fe9
 
@@ -62,414 +61,544 @@ param(
 
 #Requires -Module Microsoft.WinGet.Client
 
-function Get-WinPKGUpdates {
+# Constants
+$SCRIPT_VERSION = "1.6"
+$JSON_FILE_PATH = Join-Path $PSScriptRoot "exclusions.json"
 
-    $scriptName = "winpkg"
+# Visual Elements
+$SEPARATOR = "═" * 80
+$SUCCESS_ICON = "✓"
+$ERROR_ICON = "✗"
+$INFO_ICON = "ℹ"
+$WARNING_ICON = "⚠"
+$PROGRESS_ICON = "⟳"
 
-    Write-Host "`n:: Checking for WinPKG updates" -ForegroundColor Cyan
-    $installedVersion = $appversion
+# Title with Unicode styling
+$TITLE = "╔══════════════════════════════════════════════════════════════════════════════╗`n" + 
+        "║                                                                              ║`n" +
+        "║  ██╗    ██╗██╗███╗   ██╗██████╗  ██╗  ██╗ ██████╗                            ║`n" +
+        "║  ██║    ██║██║████╗  ██║██╔══██╗ ██║ ██╔╝██╔════╝                            ║`n" +
+        "║  ██║ █╗ ██║██║██╔██╗ ██║██████╔╝ █████╔╝ ██║                                 ║`n" +
+        "║  ██║███╗██║██║██║╚██╗██║██╔═══╝  ██╔═██╗ ██║   ██    [$SCRIPT_VERSION]                   ║`n" +
+        "║  ╚███╔███╔╝██║██║ ╚████║██║      ██║  ██╗╚██████╗                            ║`n" +
+        "║   ╚══╝╚══╝ ╚═╝╚═╝  ╚═══╝╚═╝      ╚═╝  ╚═╝ ╚═════╝                            ║`n" +
+        "║                                                                              ║`n" +
+        "╚══════════════════════════════════════════════════════════════════════════════╝"
 
-    $galleryScript = Find-Script -Name $scriptName
-    $galleryVersion = $galleryScript.Version
-
-    if ($galleryVersion -gt $installedVersion) {
-        Write-Host ":: New version of WinPKG is available: $galleryVersion. Please update with Update-Script -Name winpkg" -ForegroundColor Cyan
+# Utility functions
+function Write-Status {
+    param(
+        [string]$Message,
+        [string]$Color = "Blue",
+        [string]$Icon = $INFO_ICON,
+        [switch]$NoNewLine
+    )
+    $timestamp = Get-Date -Format "HH:mm:ss"
+    $formattedMessage = "[$timestamp] $Icon $Message"
+    if ($NoNewLine) {
+        Write-Host $formattedMessage -ForegroundColor $Color -NoNewline
+    } else {
+        Write-Host $formattedMessage -ForegroundColor $Color
     }
-    else{
-        Write-Host ":: Already running the latest version" -ForegroundColor Cyan
+}
+
+function Write-Header {
+    param([string]$Title)
+    Write-Host "`n$SEPARATOR"
+    Write-Host " $Title" -ForegroundColor Cyan
+    Write-Host $SEPARATOR
+}
+
+function Write-Success {
+    param([string]$Message)
+    Write-Status -Message $Message -Color "Green" -Icon $SUCCESS_ICON
+}
+
+function Write-Error {
+    param([string]$Message)
+    Write-Status -Message $Message -Color "Red" -Icon $ERROR_ICON
+}
+
+function Write-Warning {
+    param([string]$Message)
+    Write-Status -Message $Message -Color "Yellow" -Icon $WARNING_ICON
+}
+
+function Write-Progress {
+    param(
+        [string]$Message,
+        [int]$Percent
+    )
+    $progressBar = "[" + ("█" * ($Percent / 2)) + (" " * (50 - ($Percent / 2))) + "]"
+    $progressText = "[$((Get-Date).ToString('HH:mm:ss'))] $PROGRESS_ICON $Message $progressBar $Percent%"
+    Write-Host "`r$progressText" -ForegroundColor Cyan -NoNewline
+    if ($Percent -eq 100) {
+        Write-Host ""  # Aggiungi una nuova riga solo quando raggiungiamo il 100%
+    }
+}
+
+function Format-PackageOutput {
+    param(
+        [int]$Index,
+        [string]$Id,
+        [string]$Version,
+        [string]$NewVersion = $null
+    )
+    $formattedInd = "{0,-5}" -f $Index
+    $formattedId = "{0,-40}" -f $Id
+    $formattedVersion = "{0,-20}" -f $Version
+    
+    Write-Host -NoNewLine $formattedInd -ForegroundColor Magenta
+    Write-Host -NoNewLine $formattedId
+    Write-Host -NoNewLine $formattedVersion -ForegroundColor Red
+    
+    if ($NewVersion) {
+        Write-Host $NewVersion -ForegroundColor Green
+    } else {
+        Write-Host ""
+    }
+}
+
+function Get-WinPKGUpdates {
+    $jsonContent = @{
+        ExcludedPackages = @()
+        LastUpdateCheck = $null
+    }
+    
+    if (Test-Path $JSON_FILE_PATH) {
+        try {
+            $existingContent = Get-Content -Raw -Path $JSON_FILE_PATH | ConvertFrom-Json
+            if ($existingContent.ExcludedPackages) {
+                $jsonContent.ExcludedPackages = $existingContent.ExcludedPackages
+            }
+            if ($existingContent.LastUpdateCheck) {
+                $jsonContent.LastUpdateCheck = $existingContent.LastUpdateCheck
+            }
+        } catch {
+            Write-Status "Failed to read JSON file: $_" "Red"
+        }
+    }
+
+    $shouldCheck = $true
+    if ($jsonContent.LastUpdateCheck) {
+        try {
+            $lastCheck = [DateTime]::Parse($jsonContent.LastUpdateCheck, [System.Globalization.CultureInfo]::CurrentCulture)
+            $today = Get-Date
+            if (($today - $lastCheck).TotalDays -lt 1) {
+                $shouldCheck = $false
+            }
+        } catch {
+            Write-Status "Failed to parse last update check time: $_" "Red"
+            $shouldCheck = $true
+        }
+    }
+
+    if (-not $shouldCheck) {
+        return
+    }
+
+    Write-Status "Checking for WinPKG updates" "Cyan"
+    try {
+        $galleryScript = Find-Script -Name "winpkg" -ErrorAction Stop
+        if ($galleryScript.Version -gt $SCRIPT_VERSION) {
+            Write-Status "New version of WinPKG is available: $($galleryScript.Version). Please update with Update-Script -Name winpkg" "Yellow"
+            exit
+        } else {
+            Write-Status "Already running the latest version" "Cyan"
+        }
+        $jsonContent.LastUpdateCheck = (Get-Date).ToString("G", [System.Globalization.CultureInfo]::CurrentCulture)
+        $jsonContent | ConvertTo-Json | Set-Content -Path $JSON_FILE_PATH
+    } catch {
+        Write-Status "Failed to check for updates: $_" "Red"
     }
 }
 
 function Update-Packages {
+    Write-Header "Checking for Updates"
+    
+    try {
+        $updatePackages = Get-WinGetPackage -Source "winget" | 
+            Where-Object IsUpdateAvailable -eq $true |
+            Select-Object Id, Name, InstalledVersion, @{Name='LastVersion'; Expression={$_.AvailableVersions[0]}}
 
-    Write-Host "`n:: Checking packages updates" -ForegroundColor Yellow
-    $updatepackages = Get-WinGetPackage -Source "winget" | Where-Object IsUpdateAvailable -eq $true | `
-    Select-Object Id, Name, InstalledVersion, @{Name='LastVersion'; Expression={$_.AvailableVersions[0]}}
+        if (-not $updatePackages) {
+            Write-Warning "No updates available"
+            return
+        }
 
-    if ($updatepackages.count -ne 0) {
-        Write-Host ":: Updates available found: $($updatepackages.count)"
-
+        Write-Success "Found $($updatePackages.count) updates available"
+        
         $excludedPackages = Get-ExcludedPackages
-        $packagesToInstall = @()
-        $excludedToInstall = @()
+        $packagesToInstall = $updatePackages | Where-Object { $excludedPackages -notcontains $_.Id }
+        $excludedToInstall = $updatePackages | Where-Object { $excludedPackages -contains $_.Id }
 
-        ForEach ($package in $updatepackages) {
-            If ($null -eq $excludedPackages -or $excludedPackages -notcontains $package.Id) {
-                $packagesToInstall += $package
-            }
-            Else{
-                $excludedToInstall += $package
-            }
+        if ($excludedToInstall) {
+            Write-Header "Excluded from Updates"
+            $excludedPackageIds = ($excludedToInstall.Id) -join ', '
+            Write-Warning "Excluded packages: $excludedPackageIds"
         }
 
-        if ($excludedToInstall.Count -gt 0) {
-            $excludedPackageIds = ($excludedToInstall | ForEach-Object { $_.Id }) -join ', '
-            Write-Host ":: Excluded package from update: $excludedPackageIds. Ignoring ..." -ForegroundColor Yellow
-        }
-
-        $index = 1
-        if ($packagesToInstall.Count -gt 0) {
-            write-host ""
-            ForEach ($updatepkg in $packagesToInstall){
-
-                # Formattazione con larghezza fissa per allineare l'output
-                $formattedInd = "{0,-5}" -f $index
-                $formattedId = "{0,-40}" -f $updatepkg.Id
-                $formattedVersion = "{0,-20}" -f $updatepkg.InstalledVersion
-                $formattedNewVersion = "{0,-20}" -f $updatepkg.LastVersion
-
-                # Stampa il testo con colori e formattazione
-                Write-Host -NoNewLine "$formattedInd" -ForegroundColor Magenta
-                Write-Host -NoNewLine "$formattedId"
-                Write-Host -NoNewLine "$formattedVersion" -ForegroundColor Red
-                Write-Host "$formattedNewVersion" -ForegroundColor Green
-
-                $index ++
-            }
+        if ($packagesToInstall) {
+            Write-Header "Available Updates"
+            # Intestazione tabella
+            Write-Host ("{0,-5}{1,-60}{2,-20}{3,-20}" -f "#", "Package ID", "Current Version", "New Version") -ForegroundColor Cyan
+            Write-Host ("{0,-5}{1,-60}{2,-20}{3,-20}" -f ("-"*1), ("-"*10), ("-"*14), ("-"*10)) -ForegroundColor Cyan
             
-            $response = Read-Host "`n:: Do you want to proceed with installing $($packagesToInstall.Count) updates? (y/n)"
+            $i = 1
+            foreach ($pkg in $packagesToInstall) {
+                # Tronca l'ID se troppo lungo
+                $displayId = if ($pkg.Id.Length -gt 57) {
+                    $pkg.Id.Substring(0, 54) + "..."
+                } else {
+                    $pkg.Id
+                }
+                Write-Host -NoNewline ("{0,-5}" -f $i) -ForegroundColor Magenta
+                Write-Host -NoNewline ("{0,-60}" -f $displayId)
+                Write-Host -NoNewline ("{0,-20}" -f $pkg.InstalledVersion) -ForegroundColor Red
+                Write-Host ("{0,-20}" -f $pkg.LastVersion) -ForegroundColor Green
+                $i++
+            }
 
+            $response = Read-Host "`nDo you want to proceed with installing $($packagesToInstall.Count) updates? (y/n)"
             if ($response -ieq "y") {
-                ForEach ($pkgup in $packagesToInstall) {
-                    try{
-                        $resultupdate = $pkgup| Update-WinGetPackage -Mode Silent
-                        if ($resultupdate.Status -ieq "OK"){
-                            Write-Host ":: The package $($pkgup.Id) is now updated to version $($pkgup.LastVersion)" -ForegroundColor Green
+                $results = @()
+
+                foreach ($pkg in $packagesToInstall) {
+                    Write-Progress -Message "Updating $($pkg.Id)" -Percent 0
+                    Start-Sleep -Milliseconds 500
+                    
+                    try {
+                        Write-Progress -Message "Updating $($pkg.Id)" -Percent 50
+                        $result = $pkg | Update-WinGetPackage -Mode Silent -ProgressAction SilentlyContinue
+                        
+                        Write-Progress -Message "Updating $($pkg.Id)" -Percent 100
+                        Start-Sleep -Milliseconds 500
+                        
+                        $results += [PSCustomObject]@{
+                            Id = $pkg.Id
+                            LastVersion = $pkg.LastVersion
+                            Status = $result.Status
+                            Success = ($result.Status -ieq "OK")
                         }
-                        Else{
-                            Write-Host ":: Something went wrong during the update for $($pkgup.Id). Please try again (Error: $($resultupdate.Status))" -ForegroundColor Red
+                    } catch {
+                        $results += [PSCustomObject]@{
+                            Id = $pkg.Id
+                            LastVersion = $pkg.LastVersion
+                            Status = $_.Exception.Message
+                            Success = $false
                         }
-                    }
-                    catch{
-                        Write-Host ":: Something went wrong : $_" -ForegroundColor Red
                     }
                 }
-            } else {
-                Exit
+
+                Write-Header "Update Results"
+                foreach ($result in $results) {
+                    if ($result.Success) {
+                        Write-Success "Updated $($result.Id) to version $($result.LastVersion)"
+                    } else {
+                        Write-Error "Failed to update $($result.Id). Error: $($result.Status)"
+                    }
+                }
             }
-        } else {
-            
-            Write-Host ":: No updates for packages are available now`n" -ForegroundColor Yellow
         }
-    } else {
-        Write-Host ":: No updates for packages are available now`n" -ForegroundColor Yellow
+    } catch {
+        Write-Error "Failed to update packages: $_"
     }
 }
 
 function Get-ExcludedPackages {
-
-    if ($XclusionList.IsPresent){
-        Write-Host "`n:: Checking exclusion list" -ForegroundColor Yellow
-        if (Test-Path $jsonFilePath) {
-            $ind = 1
-            $jsonContent = Get-Content -Raw -Path $jsonFilePath | ConvertFrom-Json
-            If ($null -ne $jsonContent -and $jsonContent.ExcludedPackages.Count -gt 0){
-                Write-Host ""
-                ForEach ($pkg in $jsonContent.ExcludedPackages){
-
-                    # Formattazione con larghezza fissa per allineare l'output
-                    $formattedInd = "{0,-5}" -f $ind
-                    $formattedId = "{0,-40}" -f $pkg
-        
-                    # Stampa il testo con colori e formattazione
+    if ($XclusionList.IsPresent) {
+        Write-Header "Excluded Packages List"
+        if (Test-Path $JSON_FILE_PATH) {
+            try {
+                $jsonContent = Get-Content -Raw -Path $JSON_FILE_PATH | ConvertFrom-Json
+                if ($jsonContent.ExcludedPackages -and $jsonContent.ExcludedPackages.Count -gt 0) {
+                    # Intestazione tabella
+                    Write-Host ("{0,-5}{1,-60}" -f "#", "Package ID") -ForegroundColor Cyan
+                    Write-Host ("{0,-5}{1,-60}" -f ("-"*1), ("-"*10)) -ForegroundColor Cyan
                     
-                    Write-Host -NoNewLine "$formattedInd" -ForegroundColor Magenta
-                    Write-Host "$formattedId"
-                    $ind ++
+                    $i = 1
+                    $jsonContent.ExcludedPackages | Sort-Object -Unique | ForEach-Object {
+                        # Tronca l'ID se troppo lungo
+                        $displayId = if ($_.Length -gt 57) {
+                            $_.Substring(0, 54) + "..."
+                        } else {
+                            $_
+                        }
+                        Write-Host -NoNewline ("{0,-5}" -f $i) -ForegroundColor Magenta
+                        Write-Host ("{0,-60}" -f $displayId)
+                        $i++
+                    }
+                    Write-Success "Found $($jsonContent.ExcludedPackages.Count) excluded packages"
+                } else {
+                    Write-Warning "No packages are excluded for update right now"
                 }
-                Write-Host ""
-                Write-Host ":: Search completed`n" -ForegroundColor Green
+            } catch {
+                Write-Error "Failed to read exclusion list: $_"
             }
-                
-            Else{
-                Write-Host ":: No packages are excluded for update right now`n" -ForegroundColor Yellow
-            }
-            
-        } else {
-
-            $initialJson = @{
-                ExcludedPackages = @()
-            } | ConvertTo-Json
-
-            $initialJson | Set-Content -Path $jsonFilePath
-
-            return @()
         }
-
+        return
     }
-    Else{
-        if (Test-Path $jsonFilePath) {
 
-            $jsonContent = Get-Content -Raw -Path $jsonFilePath | ConvertFrom-Json
+    try {
+        if (Test-Path $JSON_FILE_PATH) {
+            $jsonContent = Get-Content -Raw -Path $JSON_FILE_PATH | ConvertFrom-Json
+            if ($jsonContent.ExcludedPackages -is [string]) {
+                # Convert single string to array if needed
+                return @($jsonContent.ExcludedPackages)
+            }
             return $jsonContent.ExcludedPackages -as [string[]]
         } else {
-
             $initialJson = @{
                 ExcludedPackages = @()
             } | ConvertTo-Json
-
-            $initialJson | Set-Content -Path $jsonFilePath
-
+            $initialJson | Set-Content -Path $JSON_FILE_PATH
             return @()
         }
+    } catch {
+        Write-Error "Failed to get excluded packages: $_"
+        return @()
     }
 }
 
 function Add-ExcludedPackage {
-    param (
-        [string]$packageId
-    )
-
-    [string[]]$excludedPackages = Get-ExcludedPackages
-
-    if ($packageId -notin $excludedPackages) {
-        $excludedPackages += $packageId
-
-        $jsonContent = @{
-            ExcludedPackages = $excludedPackages
+    param([string]$packageId)
+    
+    try {
+        $excludedPackages = Get-ExcludedPackages
+        if ($excludedPackages -is [string]) {
+            $excludedPackages = @($excludedPackages)
         }
-
-        $jsonContent | ConvertTo-Json | Set-Content -Path $jsonFilePath
-
-        Write-Host "`n:: Package $Exclude is excluded from future updates`n" -ForegroundColor Green
-
-    } else {
-        Write-Host "`n:: Package $Exclude is already excluded from future update`n" -ForegroundColor Red
+        
+        if ($packageId -notin $excludedPackages) {
+            $excludedPackages = @($excludedPackages) + $packageId
+            $jsonContent = @{
+                ExcludedPackages = $excludedPackages
+            }
+            $jsonContent | ConvertTo-Json | Set-Content -Path $JSON_FILE_PATH
+            Write-Success "Package $packageId is excluded from future updates"
+        } else {
+            Write-Warning "Package $packageId is already excluded from future update"
+        }
+    } catch {
+        Write-Error "Failed to add excluded package: $_"
     }
-
 }
 
 function Remove-ExcludedPackage {
-    param (
-        [string]$packageId
+    param([string]$packageId)
+    
+    try {
+        $excludedPackages = Get-ExcludedPackages
+        if ($excludedPackages -is [string]) {
+            $excludedPackages = @($excludedPackages)
+        }
+        
+        if ($packageId -in $excludedPackages) {
+            $excludedPackages = $excludedPackages | Where-Object { $_ -ne $packageId }
+            $jsonContent = @{
+                ExcludedPackages = $excludedPackages
+            }
+            $jsonContent | ConvertTo-Json | Set-Content -Path $JSON_FILE_PATH
+            Write-Success "Package $packageId has been removed from the exclusion list"
+        } else {
+            Write-Warning "Package $packageId is not in the exclusion list"
+        }
+    } catch {
+        Write-Error "Failed to remove excluded package: $_"
+    }
+}
+
+function Install-Packages {
+    param(
+        [string]$PackageId,
+        [string]$Version = $null
     )
-
-    $excludedPackages = Get-ExcludedPackages
-
-    if ($packageId -in $excludedPackages) {
-
-        $excludedPackages = $excludedPackages | Where-Object { $_ -ne $packageId }
-
-        $jsonContent = @{
-            ExcludedPackages = $excludedPackages
-        }
-
-        $jsonContent | ConvertTo-Json | Set-Content -Path $jsonFilePath
-
-        Write-Host "`n:: Package $Process has been removed from the exclusion list`n" -ForegroundColor Green
-    } else {
-        Write-Host "`n:: Package $Process is not in the exclusion list`n" -ForegroundColor Red
-    }
-
-}
-
-
-function Install-Packages{
-
-    $installedpackage = Get-WinGetPackage | Where-Object Id -eq $Install
-    If ($installedpackage.count -eq 0){
-
-        Write-Host "`n:: Starting installation of $Install"
-        try{
-            $resultinstall = Install-WinGetPackage -Id $Install -Mode Silent
-            if ($resultinstall.Status -ieq "OK"){
-                Write-Host ":: The package $Install is now installed in your system`n" -ForegroundColor Green
+    Write-Header "Package Installation"
+    
+    try {
+        if (-not (Get-WinGetPackage | Where-Object Id -eq $PackageId)) {
+            Write-Status "Starting installation of $PackageId"
+            $params = @{
+                Id = $PackageId
+                Mode = "Silent"
             }
-            Else{
-                Write-Host ":: Something went wrong during installation of $Install. Please try again (Error: $($resultinstall.Status))`n" -ForegroundColor Red
+            if ($Version) {
+                $params.Version = $Version
             }
-        }
-        catch{
-            Write-Host ":: Something went wrong : $_" -ForegroundColor Red
-        }
-        
-    }
-    Else{
-        Write-Host ":: Package $Install is already installed in the system`n" -ForegroundColor Yellow
-        
-    }
-
-}
-
-
-function Install-PackagesVersioning{
-    $installedpackage = Get-WinGetPackage | Where-Object Id -eq $Install
-    If ($installedpackage.count -eq 0){
-
-        Write-Host "`n:: Starting installation of $Install on targeted version $Version"
-        try{
-            $resultinstall = Install-WinGetPackage -Id $Install -Version $Version -Mode Silent
-            if ($resultinstall.Status -ieq "OK"){
-                Write-Host ":: The package $Install is now installed in your system on targeted version $Version`n" -ForegroundColor Green
-            }
-            Else{
-                Write-Host ":: Something went wrong during installation of $Install. Please try again (Error: $($resultinstall.Status))`n" -ForegroundColor Red
-            }
-        }
-        catch{
-            Write-Host ":: Something went wrong : $_" -ForegroundColor Red
-        }
-        
-    }
-    Else{
-        Write-Host ":: Package $Install is already installed in the system`n" -ForegroundColor Yellow
-        
-    }
-
-}
-
-
-function Find-Packages{
-
-    Write-Host "`n:: Searching package required" -ForegroundColor Yellow
-    $foundpackages = Find-WinGetPackage $Find -Source winget | Select-Object Name, Id, Version, AvailableVersions
-    $ind = 1
-    If ($foundpackages.count -ne 0){
-        Write-Host ""
-        ForEach ($foundpkg in $foundpackages){
-
-            # Formattazione con larghezza fissa per allineare l'output
-            $formattedInd = "{0,-5}" -f $ind
-            $formattedId = "{0,-40}" -f $foundpkg.Id
-            $formattedVersion = "{0,-20}" -f $foundpkg.Version
-
-            # Stampa il testo con colori e formattazione
             
-            Write-Host -NoNewLine "$formattedInd" -ForegroundColor Magenta
-            Write-Host -NoNewLine "$formattedId"
-            Write-Host -NoNewLine "$formattedVersion" -ForegroundColor Green
-            Write-Host "[$($foundpkg.AvailableVersions)]" -ForegroundColor Yellow
-            $ind ++
+            $result = Install-WinGetPackage @params
+            if ($result.Status -ieq "OK") {
+                Write-Status "The package $PackageId is now installed in your system" "Green"
+            } else {
+                Write-Status "Installation failed for $PackageId. Error: $($result.Status)" "Red"
+            }
+        } else {
+            Write-Status "Package $PackageId is already installed in the system" "Yellow"
         }
-        Write-Host ""
-        Write-Host ":: Search completed`n" -ForegroundColor Green
-    }
-    Else{
-        Write-Host ":: No packages with name $Find was found in winget`n" -ForegroundColor Red
+    } catch {
+        Write-Status "Installation failed: $_" "Red"
     }
 }
 
-
-function Remove-Packages{
-
-    Write-Host "`n:: Searching package to remove" -ForegroundColor Yellow
-    $installedpackage = Get-WinGetPackage | Where-Object Id -eq $Remove
-    If ($installedpackage.count -ne 0){
-
-        $response =  Write-Host ":: You are uninstalling $Remove from your system."
-        $response =  Read-Host ":: Do you want to proceed? (y/n)"
-
-        If ($response -ieq "y"){
-            $resultuninstall = Uninstall-WinGetPackage -Id $Remove -Mode Silent
-            if ($resultuninstall.Status -ieq "OK"){
-                Write-Host ":: The package $Remove is now uninstalled from your system`n" -ForegroundColor Green
-            }
-            Else{
-                Write-Host ":: Something went wrong with uninstalling $Remove. Please try again`n" -ForegroundColor Red
-            }
-        }
-        Else{
-            Exit
-        }
-
-    }
-    Else{
+function Find-Packages {
+    param([string]$SearchTerm)
+    Write-Header "Package Search Results"
+    Write-Status "Searching package required" "Yellow"
+    try {
+        $foundPackages = Find-WinGetPackage $SearchTerm -Source winget | 
+            Select-Object Name, Id, Version, AvailableVersions
         
-        Write-Host ":: No packages with name $Remove was found in your system`n" -ForegroundColor Red
+        if ($foundPackages) {
+            # Intestazione tabella
+            Write-Host ("{0,-5}{1,-60}{2,-20}{3,-20}" -f "#", "Package ID", "Version", "Latest Versions") -ForegroundColor Cyan
+            Write-Host ("{0,-5}{1,-60}{2,-20}{3,-20}" -f ("-"*1), ("-"*10), ("-"*7), ("-"*13)) -ForegroundColor Cyan
+            
+            $i = 1
+            foreach ($pkg in $foundPackages) {
+                # Tronca l'ID se troppo lungo
+                $displayId = if ($pkg.Id.Length -gt 57) {
+                    $pkg.Id.Substring(0, 54) + "..."
+                } else {
+                    $pkg.Id
+                }
+                # Prendi solo le ultime 7 versioni
+                $latestVersions = if ($pkg.AvailableVersions.Count -gt 7) {
+                    ($pkg.AvailableVersions | Select-Object -First 7) -join ", "
+                } else {
+                    $pkg.AvailableVersions -join ", "
+                }
+                
+                Write-Host -NoNewline ("{0,-5}" -f $i) -ForegroundColor Magenta
+                Write-Host -NoNewline ("{0,-60}" -f $displayId)
+                Write-Host -NoNewline ("{0,-20}" -f $pkg.Version) -ForegroundColor Red
+                Write-Host ("{0,-20}" -f $latestVersions) -ForegroundColor Yellow
+                $i++
+            }
+            Write-Status "Search completed" "Green"
+        } else {
+            Write-Status "No packages with name $SearchTerm was found in winget" "Red"
+        }
+    } catch {
+        Write-Status "Search failed: $_" "Red"
     }
-
 }
 
+function Remove-Packages {
+    param([string]$PackageId)
+    Write-Header "Package Removal"
+    Write-Status "Searching package to remove" "Yellow"
+    try {
+        $installedPackage = Get-WinGetPackage | Where-Object Id -eq $PackageId
+        if ($installedPackage) {
+            $response = Read-Host ":: You are uninstalling $PackageId from your system. Do you want to proceed? (y/n)"
+            if ($response -ieq "y") {
+                $result = Uninstall-WinGetPackage -Id $PackageId -Mode Silent
+                if ($result.Status -ieq "OK") {
+                    Write-Status "The package $PackageId is now uninstalled from your system" "Green"
+                } else {
+                    Write-Status "Uninstallation failed for $PackageId. Error: $($result.Status)" "Red"
+                }
+            }
+        } else {
+            Write-Status "No packages with name $PackageId was found in your system" "Red"
+        }
+    } catch {
+        Write-Status "Uninstallation failed: $_" "Red"
+    }
+}
 
 function Get-ListPackages {
-
-    Write-Host "`n:: Listing all packages installed`n" -ForegroundColor Yellow
-    $ind = 1
-    $list = Get-WinGetPackage -Source "winget" | Select-Object Id, InstalledVersion
-
-    ForEach ($li in $list) {
-        # Formattazione con larghezza fissa per allineare l'output
-        $formattedInd = "{0,-5}" -f $ind
-        $formattedId = "{0,-40}" -f $li.Id
-        $formattedVersion = "{0,-20}" -f $li.InstalledVersion
-
-        # Stampa il testo con colori e formattazione
-        Write-Host -NoNewLine "$formattedInd" -ForegroundColor Magenta
-        Write-Host -NoNewLine "$formattedId"
-        Write-Host "$formattedVersion" -ForegroundColor Green
-        $ind ++
+    Write-Header "Installed Packages"
+    Write-Status "Listing all packages installed" "Yellow"
+    try {
+        $packages = Get-WinGetPackage -Source "winget" | Select-Object Id, InstalledVersion
+        if ($packages) {
+            # Intestazione tabella con larghezza aumentata per PackageID
+            Write-Host ("{0,-5}{1,-60}{2,-20}" -f "#", "Package ID", "Version") -ForegroundColor Cyan
+            Write-Host ("{0,-5}{1,-60}{2,-20}" -f ("-"*1), ("-"*10), ("-"*7)) -ForegroundColor Cyan
+            $i = 1
+            foreach ($pkg in $packages) {
+                # Tronca l'ID se troppo lungo
+                $displayId = if ($pkg.Id.Length -gt 57) {
+                    $pkg.Id.Substring(0, 54) + "..."
+                } else {
+                    $pkg.Id
+                }
+                Write-Host -NoNewline ("{0,-5}" -f $i) -ForegroundColor Magenta
+                Write-Host -NoNewline ("{0,-60}" -f $displayId)
+                Write-Host ("{0,-20}" -f $pkg.InstalledVersion) -ForegroundColor Red
+                $i++
+            }
+        } else {
+            Write-Warning "No packages found."
+        }
+        Write-Status "Listing completed" "Green"
+    } catch {
+        Write-Status "Failed to list packages: $_" "Red"
     }
-    
-    Write-Host "`n:: Listing completed`n" -ForegroundColor Green
 }
 
-function Show-Help{
+function Show-Help {
+    Write-Header "Help"
+    @"
+Usage: winpkg [options]
 
-    $output = @()
-    $output += "`nusage: winpkg [-U update_packages]"
-    $output += "              [-I install_packages][-V version_requested]"
-    $output += "              [-F find_packages]"
-    $output += "              [-L list_installed_packages]"
-    $output += "              [-R remove_packages]"
-    $output += "              [-E exclude_packages]"
-    $output += "              [-P process_excludedpackages]"
-    $output += "              [-X eXclusion_list]`n"
-    $output | Out-Host
+Options:
+  -U, --update              Update all available packages
+  -I, --install <package>   Install a specific package
+  -V, --version <version>   Specify version for installation
+  -F, --find <package>      Search for packages
+  -L, --list               List all installed packages
+  -R, --remove <package>    Remove a package
+  -E, --exclude <package>   Exclude package from updates
+  -P, --process <package>   Process excluded package
+  -X, --exclusion-list     Show excluded packages list
+  -H, --help               Show this help message
 
+Examples:
+  winpkg -U                 # Update all packages
+  winpkg -I "Microsoft.VisualStudioCode"  # Install VS Code
+  winpkg -F "python"        # Search for Python packages
+  winpkg -L                 # List installed packages
+"@ | Out-Host
+    Write-Host $SEPARATOR
 }
 
-$appversion = "1.5"
-$welcome = @()
-$welcome += "`nWinPKG [$appversion]"
-$welcome | Out-Host
-
-# Esegui la verifica all'avvio dello script
+# Main execution
+Write-Host $TITLE -ForegroundColor Cyan
+Write-Host $SEPARATOR
 Get-WinPKGUpdates
 
-$jsonFilePath = Join-Path $PSScriptRoot "exclusions.json"
-
-If ($Update.IsPresent){
-
+# Process command line arguments
+if ($Update.IsPresent) {
     Update-Packages
-}Elseif ($Install){
-
-    If ($Version) {
-        Install-PackagesVersioning
-    }Else{
-        Install-Packages
-    }
-    
-}Elseif ($Find){
-
-    Find-Packages
-
-}ElseIf ($Exclude){
-
+}
+elseif ($Install) {
+    Install-Packages -PackageId $Install -Version $Version
+}
+elseif ($Find) {
+    Find-Packages -SearchTerm $Find
+}
+elseif ($Exclude) {
     Add-ExcludedPackage -packageId $Exclude
-
-}ElseIf ($List.IsPresent){
-
+}
+elseif ($List.IsPresent) {
     Get-ListPackages
-
-}Elseif ($Remove){
-
-    Remove-Packages
-
 }
-Elseif ($Process){
-
+elseif ($Remove) {
+    Remove-Packages -PackageId $Remove
+}
+elseif ($Process) {
     Remove-ExcludedPackage -packageId $Process
-
 }
-ElseIf($Help.IsPresent){
-
+elseif ($Help.IsPresent) {
     Show-Help
-
 }
-ElseIf($XclusionList.IsPresent){
-
+elseif ($XclusionList.IsPresent) {
     Get-ExcludedPackages
-
+}
+else {
+    Show-Help
 }
 
 
