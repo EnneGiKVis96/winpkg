@@ -1,6 +1,6 @@
 <#PSScriptInfo
 
-.VERSION 1.6
+.VERSION 1.7
 
 .GUID 30675ad6-2459-427d-ac3a-3304cf103fe9
 
@@ -62,7 +62,7 @@ param(
 #Requires -Module Microsoft.WinGet.Client
 
 # Constants
-$SCRIPT_VERSION = "1.6"
+$SCRIPT_VERSION = "1.7"
 $JSON_FILE_PATH = Join-Path $PSScriptRoot "exclusions.json"
 
 # Visual Elements
@@ -73,17 +73,9 @@ $INFO_ICON = "ℹ"
 $WARNING_ICON = "⚠"
 $PROGRESS_ICON = "⟳"
 
-# Title with Unicode styling
-$TITLE = "╔══════════════════════════════════════════════════════════════════════════════╗`n" + 
-        "║                                                                              ║`n" +
-        "║  ██╗    ██╗██╗███╗   ██╗██████╗  ██╗  ██╗ ██████╗                            ║`n" +
-        "║  ██║    ██║██║████╗  ██║██╔══██╗ ██║ ██╔╝██╔════╝                            ║`n" +
-        "║  ██║ █╗ ██║██║██╔██╗ ██║██████╔╝ █████╔╝ ██║                                 ║`n" +
-        "║  ██║███╗██║██║██║╚██╗██║██╔═══╝  ██╔═██╗ ██║   ██    [$SCRIPT_VERSION]                   ║`n" +
-        "║  ╚███╔███╔╝██║██║ ╚████║██║      ██║  ██╗╚██████╗                            ║`n" +
-        "║   ╚══╝╚══╝ ╚═╝╚═╝  ╚═══╝╚═╝      ╚═╝  ╚═╝ ╚═════╝                            ║`n" +
-        "║                                                                              ║`n" +
-        "╚══════════════════════════════════════════════════════════════════════════════╝"
+# Title (compact dynamic box)
+$TITLE = "WinPKG [$SCRIPT_VERSION]"
+
 
 # Utility functions
 function Write-Status {
@@ -104,8 +96,8 @@ function Write-Status {
 
 function Write-Header {
     param([string]$Title)
-    Write-Host "`n$SEPARATOR"
-    Write-Host " $Title" -ForegroundColor Cyan
+    Write-Host $SEPARATOR
+    Write-Host ":: $Title" -ForegroundColor Cyan
     Write-Host $SEPARATOR
 }
 
@@ -264,15 +256,9 @@ function Update-Packages {
                 $results = @()
 
                 foreach ($pkg in $packagesToInstall) {
-                    Write-Progress -Message "Updating $($pkg.Id)" -Percent 0
-                    Start-Sleep -Milliseconds 500
                     
                     try {
-                        Write-Progress -Message "Updating $($pkg.Id)" -Percent 50
-                        $result = $pkg | Update-WinGetPackage -Mode Silent -ProgressAction SilentlyContinue
-                        
-                        Write-Progress -Message "Updating $($pkg.Id)" -Percent 100
-                        Start-Sleep -Milliseconds 500
+                        $result = $pkg | Update-WinGetPackage -Mode Silent
                         
                         $results += [PSCustomObject]@{
                             Id = $pkg.Id
@@ -544,20 +530,20 @@ function Show-Help {
 Usage: winpkg [options]
 
 Options:
-  -U, --update              Update all available packages
-  -I, --install <package>   Install a specific package
-  -V, --version <version>   Specify version for installation
-  -F, --find <package>      Search for packages
-  -L, --list               List all installed packages
-  -R, --remove <package>    Remove a package
-  -E, --exclude <package>   Exclude package from updates
-  -P, --process <package>   Process excluded package
-  -X, --exclusion-list     Show excluded packages list
-  -H, --help               Show this help message
+  -U, --update              # Update all available packages
+  -I, --install <package>   # Install a specific package
+  -V, --version <version>   # Specify version for installation
+  -F, --find <package>      # Search for packages
+  -L, --list                # List all installed packages
+  -R, --remove <package>    # Remove a package
+  -E, --exclude <package>   # Exclude package from updates
+  -P, --process <package>   # Process excluded package
+  -X, --exclusion-list      # Show excluded packages list
+  -H, --help                # Show this help message
 
 Examples:
   winpkg -U                 # Update all packages
-  winpkg -I "Microsoft.VisualStudioCode"  # Install VS Code
+  winpkg -I "WinSCP.WinSCP" # Install WinSCP
   winpkg -F "python"        # Search for Python packages
   winpkg -L                 # List installed packages
 "@ | Out-Host
@@ -565,8 +551,8 @@ Examples:
 }
 
 # Main execution
-Write-Host $TITLE -ForegroundColor Cyan
 Write-Host $SEPARATOR
+Write-Host $TITLE -ForegroundColor Cyan
 Get-WinPKGUpdates
 
 # Process command line arguments
